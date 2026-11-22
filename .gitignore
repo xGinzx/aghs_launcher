@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+.test-deps/
+settings.local.json
+*.log
+*.vpk
+*.vpk.*
+*.zip
+dist/
+artifacts/
+.ahb-owner.json
+.ahb-operation.lock
+aghs_http_bridge.txt
+ahb_*/

@@ -15,6 +15,7 @@ import time
 
 from bridge import DestinationPolicy, Dispatcher, LogReader, Mailbox, atomic_bytes
 from vpk import Archive
+from resources import inject_script
 
 ROOT = Path(__file__).resolve().parent
 DEFAULTS = {'workshop_id': '2483181385', 'map': 'aghanim3', 'addon_name': 'aghs_public',
@@ -148,13 +149,19 @@ class AddonLock:
 
 
 def patch_files(archive: Archive):
-    if any(name in archive.entries for name in ('scripts/vscripts/ahb_bridge.lua', 'scripts/vscripts/ahb_workshop.lua')):
+    if any(name in archive.entries for name in ('scripts/vscripts/ahb_bridge.lua', 'scripts/vscripts/ahb_workshop.lua', 'scripts/vscripts/ahb_ui_transport.lua')):
         raise ValueError('The source VPK already contains AHB files; use the original Workshop download')
-    return {
+    replacements = {
         'scripts/vscripts/addon_game_mode.lua': (ROOT / 'lua' / 'entry.lua').read_bytes(),
         'scripts/vscripts/ahb_workshop.lua': archive.read('scripts/vscripts/addon_game_mode.lua'),
         'scripts/vscripts/ahb_bridge.lua': (ROOT / 'lua' / 'http_bridge.lua').read_bytes(),
+        'scripts/vscripts/ahb_ui_transport.lua': (ROOT / 'lua' / 'ui_transport.lua').read_bytes(),
     }
+    client = (ROOT / 'panorama' / 'ui_transport.js').read_bytes()
+    for name in archive.entries:
+        if name.endswith('.vjs_c'):
+            replacements[name] = inject_script(archive.read(name), client)
+    return replacements
 
 
 def prepare(source: Path, addon: Path, workshop_id: str) -> dict:

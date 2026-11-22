@@ -19,6 +19,8 @@ import time
 from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 import zlib
 
+from retry_io import atomic_bytes, unlink_file
+
 MAX_REQUEST = 1024 * 1024
 MAX_RESPONSE = 4 * 1024 * 1024
 MAX_ENVELOPE = MAX_RESPONSE + 128 * 1024
@@ -256,22 +258,6 @@ def fetch(request: Request, policy: DestinationPolicy) -> Response:
         return Response(error='request_failed', elapsed_ms=int((time.monotonic() - started) * 1000))
 
 
-def atomic_bytes(path: Path, data: bytes):
-    temporary = path.with_name(path.name + '.partial')
-    try:
-        temporary.write_bytes(data)
-        for attempt in range(6):
-            try:
-                os.replace(temporary, path)
-                return
-            except PermissionError:
-                if attempt == 5:
-                    raise
-                time.sleep(0.01)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
 def keyvalues(data: dict, depth=0) -> str:
     lines = []
     for key, value in data.items():
@@ -297,6 +283,10 @@ class Mailbox:
         self.folder.mkdir(parents=True, exist_ok=True)
         self.ready: dict[str, str] = {}
         self.files: dict[str, list[Path]] = {}
+        self.pending: dict[str, Response] = {}
+        self.cleanup: set[Path] = set()
+        self.index_dirty = True
+        self.last_write_warning = float('-inf')
         self.index()
 
     @staticmethod
@@ -304,7 +294,19 @@ class Mailbox:
         atomic_bytes(path, (keyvalues({'ahb': data}) + '\n').encode('ascii'))
 
     def index(self):
-        self.write(self.folder / 'index.kv', {'token': self.token, 'done': self.ready})
+        self.index_dirty = True
+        try:
+            self.write(self.folder / 'index.kv', {'token': self.token, 'done': self.ready})
+        except PermissionError:
+            self.write_blocked()
+        else:
+            self.index_dirty = False
+
+    def write_blocked(self):
+        now = time.monotonic()
+        if now - self.last_write_warning >= 10:
+            print('Local HTTP file write blocked; retaining replies and retrying.', flush=True)
+            self.last_write_warning = now
 
     def configure(self, addon: Path, probe=False):
         self.write(addon / 'scripts' / 'aghs_http_bridge.txt', {'token': self.token, 'probe': int(probe)})
@@ -312,33 +314,53 @@ class Mailbox:
     def publish(self, request_id: str, response: Response):
         if not re.fullmatch(r'q[0-9a-f]+_[0-9a-f]+', request_id):
             raise ValueError('Invalid request ID')
+        self.pending[request_id] = response
+        self.flush()
+
+    def flush(self):
+        for request_id, response in list(self.pending.items()):
+            try:
+                self.write_response(request_id, response)
+            except PermissionError:
+                self.write_blocked()
+                continue
+            del self.pending[request_id]
+        if self.index_dirty:
+            self.index()
+        for path in list(self.cleanup):
+            try:
+                unlink_file(path)
+            except PermissionError:
+                self.write_blocked()
+            else:
+                self.cleanup.discard(path)
+
+    def write_response(self, request_id: str, response: Response):
         payload = response.envelope()
         if len(payload) > MAX_ENVELOPE:
             response = Response(error='response_too_large')
             payload = response.envelope()
         chunks = [payload[n:n + CHUNK_BYTES] for n in range(0, len(payload), CHUNK_BYTES)]
-        files = []
         page_count = (len(chunks) + PAGE_CHUNKS - 1) // PAGE_CHUNKS
+        self.files[request_id] = [self.folder / f'{request_id}_{page}.kv' for page in range(page_count)] + [self.folder / f'{request_id}.kv']
         for page in range(page_count):
             path = self.folder / f'{request_id}_{page}.kv'
             self.write(path, {'token': self.token, 'request': request_id, 'page': page,
                               'data': {f'b{i}': chunk.hex() for i, chunk in enumerate(chunks[page * PAGE_CHUNKS:(page + 1) * PAGE_CHUNKS])}})
-            files.append(path)
         path = self.folder / f'{request_id}.kv'
         self.write(path, {'token': self.token, 'request': request_id, 'code': response.code,
                           'error': response.error, 'elapsed_ms': response.elapsed_ms,
                           'length': len(payload), 'chunks': len(chunks), 'pages': page_count})
-        files.append(path)
-        self.files[request_id] = files
         self.ready[request_id] = '1'
-        self.index()
+        self.index_dirty = True
 
     def acknowledge(self, request_id: str):
+        self.pending.pop(request_id, None)
         if request_id in self.ready:
             self.ready.pop(request_id)
-            self.index()
-        for path in self.files.pop(request_id, []):
-            path.unlink(missing_ok=True)
+            self.index_dirty = True
+        self.cleanup.update(self.files.pop(request_id, []))
+        self.flush()
 
 
 class Dispatcher:
@@ -395,7 +417,7 @@ class Dispatcher:
         except (ValueError, UnicodeError):
             self.mailbox.publish(rid, Response(error='invalid_request'))
             return
-        if len(self.active) >= 16 or len(self.mailbox.ready) >= 32:
+        if len(self.active) >= 16 or len(self.mailbox.ready) + len(self.mailbox.pending) >= 32:
             self.mailbox.publish(rid, Response(error='busy'))
             return
         self.active.add(rid)
@@ -407,6 +429,7 @@ class Dispatcher:
             try:
                 rid, result = self.finished.get_nowait()
             except queue.Empty:
+                self.mailbox.flush()
                 return
             self.active.discard(rid)
             if rid in self.cancelled:

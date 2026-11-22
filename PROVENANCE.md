@@ -14,6 +14,12 @@ acknowledgments. It does not implement VG's wire format and does not load a VG
 application, library, or service. The Python components were developed for this
 project and updated for this release.
 
+The snapshot-disconnect fix adds a newly written Lua UI sender, JavaScript
+receiver, and Panorama resource repacker. At preparation time, the user's own
+compiled script resources receive the project's receiver prefix. The public
+source package contains only that new prefix and repacking code, not the
+Workshop's script contents or modified game assets.
+
 Earlier source code was inspected during the investigation. This is therefore
 not represented as a formal clean-room implementation or a legal certification.
 Renaming files, writing new source, or selecting a license does not by itself

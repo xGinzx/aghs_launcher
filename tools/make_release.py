@@ -7,8 +7,10 @@ import zipfile
 FILES = (
     '.gitignore', 'LICENSE', 'README.md', 'PROTOCOL.md', 'PROVENANCE.md',
     'Host Aghs.cmd', 'Prepare.cmd', 'settings.example.json',
-    'launcher.py', 'bridge.py', 'vpk.py', 'lua/entry.lua', 'lua/http_bridge.lua',
-    'tests/support.py', 'tests/test_bridge.py', 'tests/test_vpk.py', 'tests/test_lua.py',
+    'launcher.py', 'bridge.py', 'vpk.py', 'retry_io.py', 'resources.py',
+    'lua/entry.lua', 'lua/http_bridge.lua', 'lua/ui_transport.lua', 'panorama/ui_transport.js',
+    'tests/support.py', 'tests/test_bridge.py', 'tests/test_vpk.py', 'tests/test_lua.py', 'tests/test_file_locks.py',
+    'tests/test_ui_transport.py', 'tests/ui_receiver_runner.js',
     'tools/make_release.py', 'tools/verify_workshop.py',
 )
 

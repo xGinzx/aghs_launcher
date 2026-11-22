@@ -123,11 +123,39 @@ Workshop entry point stored as `ahb_workshop.lua`. Native HTTP requests are used
 when Dota supplies them. A replacement request object is supplied when the native
 factory returns no object.
 
+The entry script forwards the Workshop's `Precache` and `Activate` lifecycle
+hooks. This preserves the map's original model, particle, sound, and unit
+preloading. The console reports `[AGHS_ASSETS] workshop Precache started` and
+`completed` when that resource list is executed. The launcher does not replace
+missing models with unrelated assets.
+
 The adapter prints framed requests into `game/dota/console.log`. Python reads
 those frames and performs the requests. Responses are written to a session
 mailbox under the generated addon's `scripts` folder. Lua reads the mailbox with
 `LoadKeyValues` and invokes the original game's callback. Acknowledgments remove
 completed response files. There is no inbound HTTP listener.
+
+Large game-to-UI updates use a separate bounded transport to avoid snapshot
+disconnects when a large inventory is opened or the run starts. The generated
+addon adds a server UI adapter and prefixes compiled Panorama script resources
+with a client receiver. Large events travel in 512-byte JSON fragments; smaller
+events and fragments are paced across frames. The receiver reconstructs the
+original event before invoking the map's UI callbacks. Inventory entries are
+not trimmed, and this transport does not modify backend account data.
+Transfers for different panels are interleaved so a large relic inventory does
+not block world-scroll updates. Repeated full-state inventory notifications
+that have not started sending are merged into the newest pending snapshot.
+Events reporting individual actions or rewards are not merged.
+
+This changes the generated addon files. After updating to this release, the host
+must rebuild by restarting the launcher, and joining players must run Prepare
+again with the same release or copy the host's new generated VPK and addoninfo.
+
+On Windows, Dota can briefly hold a mailbox file open while reading it. File
+writes and cleanup retry these sharing conflicts. If a file remains locked,
+completed replies and index updates stay queued for later delivery; the bridge
+does not repeat the HTTP request. A warning is printed at most every ten seconds
+while local file operations remain blocked.
 
 See [PROTOCOL.md](PROTOCOL.md) for the message format. Supported methods are
 GET, HEAD, POST, PUT, PATCH, DELETE, and OPTIONS. The adapter supports headers,
@@ -163,6 +191,9 @@ The Lua tests use a Lua 5.1 runtime with mocked Dota engine functions. They chec
 the actual Lua adapter against the Python decoder, mailbox writer, and a
 temporary local HTTP server. Tests use synthetic data rather than player data.
 They do not substitute for testing in the current Dota client or a remote join.
+
+The UI transport tests additionally use Node.js as a development-only Panorama
+test harness. Node.js is not required to prepare, host, or join a game.
 
 Create a source-only ZIP using the explicit release-file allowlist:
 

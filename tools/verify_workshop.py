@@ -5,7 +5,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from launcher import prepare
+from launcher import prepare, patch_files
 from vpk import Archive
 
 
@@ -16,12 +16,15 @@ def verify(source: Path, temp_dir=None):
         manifest = prepare(source, addon, '2483181385')
         built = Archive(addon / 'pak01_dir.vpk')
         assert built.read('scripts/vscripts/ahb_workshop.lua') == original.read('scripts/vscripts/addon_game_mode.lua')
-        additions = {'scripts/vscripts/ahb_workshop.lua', 'scripts/vscripts/ahb_bridge.lua'}
+        modifications = patch_files(original)
+        additions = set(modifications) - set(original.entries)
         assert set(built.entries) - set(original.entries) == additions
         assert not set(original.entries) - set(built.entries)
         for name, entry in original.entries.items():
-            if name != 'scripts/vscripts/addon_game_mode.lua':
+            if name not in modifications:
                 assert built.entries[name] == entry
+        for name, expected in modifications.items():
+            assert built.read(name) == expected
         print(f'Verified {len(original.entries)} original entries; build {manifest["build_id"][:16]}')
     return manifest
 

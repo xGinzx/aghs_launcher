@@ -143,6 +143,9 @@ class LuaAdapterTests(unittest.TestCase):
         self.globals[b'fixture_adapter'] = adapter
         self.lua.execute(b'''
             package.preload['ahb_bridge'] = function() return fixture_adapter end
+            package.preload['ahb_ui_transport'] = function()
+                return {install=function() end, attach=function() end}
+            end
             package.preload['ahb_workshop'] = function()
                 Activate = function(a) fixture_argument = a; return 'one', nil, 'three' end
                 return 'workshop return'
@@ -162,6 +165,38 @@ class LuaAdapterTests(unittest.TestCase):
         page.write_text(page.read_text().replace('41484231', 'zzzzzzzz'))
         self.adapter.poll()
         self.assertEqual(self.globals[b'fixture_result'][b'Error'], b'invalid_response')
+
+    def test_precache_is_exported_on_entry_scope_and_preserves_context(self):
+        self.globals[b'fixture_entry'] = (ROOT / 'lua' / 'entry.lua').read_bytes()
+        self.lua.execute(b'''
+            package.loaded['ahb_bridge']=nil
+            package.loaded['ahb_ui_transport']=nil
+            package.loaded['ahb_workshop']=nil
+            package.preload['ahb_bridge']=function()
+                return {install=function()end,attach=function()end,probe=function()end}
+            end
+            package.preload['ahb_ui_transport']=function()
+                return {install=function()end,attach=function()end}
+            end
+            package.preload['ahb_workshop']=function()
+                _G.Precache=function(context)
+                    fixture_precache_context=context
+                    fixture_precache_calls=(fixture_precache_calls or 0)+1
+                    return 'precached',nil,7
+                end
+                return 'original workshop result'
+            end
+            fixture_scope=setmetatable({}, {__index=_G})
+            local entry=assert(loadstring(fixture_entry))
+            setfenv(entry,fixture_scope)
+            assert(entry()=='original workshop result')
+            assert(type(rawget(fixture_scope,'Precache'))=='function')
+            fixture_context={sentinel=123}
+            local first,second,third=fixture_scope.Precache(fixture_context)
+            assert(first=='precached' and second==nil and third==7)
+            assert(fixture_precache_context==fixture_context)
+            assert(fixture_precache_calls==1)
+        ''')
 
 
 if __name__ == '__main__':

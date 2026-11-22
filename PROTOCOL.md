@@ -86,3 +86,22 @@ Python removes that request's mailbox files and index entry. If the HTTP worker
 is still running after a timeout, its eventual result is discarded. A callback
 is invoked at most once by the adapter. Session tokens stay fresh even when all
 players have identical generated VPKs.
+
+## Game-to-UI transport
+
+This is separate from AHB/1 HTTP forwarding. The `ahb_ui_fragment` custom event
+has an ID, original event name, one-based part number, total part count, raw byte
+length, and a hexadecimal UTF-8 JSON fragment. Each fragment represents at most
+512 raw bytes; a complete event is limited to 4 MiB. The Lua sender keeps numeric
+table keys as JSON object keys to match native event-table handling.
+
+The sender paces events per player and globally. The Panorama receiver validates
+lengths and part counts, bounds incomplete-transfer memory, rejects inconsistent
+duplicates, and expires incomplete transfers after two minutes. It invokes the
+original subscribed callbacks only after assembling the complete event. Normal
+event subscription IDs and Unsubscribe behavior are retained. This transport
+does not grant additional backend permissions or change profile contents.
+Each player has separate FIFO queues by event name, visited in round-robin
+order. Explicitly listed full-state snapshot events can replace their latest
+not-yet-started queued snapshot. In-flight messages remain complete, with one
+pending copy retained for contexts that subscribed after a transfer began.
