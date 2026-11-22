@@ -8,6 +8,7 @@ ui_transport.install()
 local workshop_result = require('ahb_workshop')
 local activate_workshop = Activate
 local precache_workshop = Precache
+local spawn_group_precache_workshop = SpawnGroupPrecache
 local output = print_Engine or print
 
 local function precache_finished(...)
@@ -21,6 +22,15 @@ function Precache(...)
     if type(precache_workshop) == 'function' then
         output('[AGHS_ASSETS] workshop Precache started')
         return precache_finished(precache_workshop(...))
+    end
+end
+
+-- Dynamically loaded encounter rooms have their own precache context. Dota
+-- looks up this hook on the entry scope just like the initial Precache hook.
+function SpawnGroupPrecache(...)
+    if type(spawn_group_precache_workshop) == 'function' then
+        output('[AGHS_ASSETS] workshop SpawnGroupPrecache dispatched')
+        return spawn_group_precache_workshop(...)
     end
 end
 

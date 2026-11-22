@@ -198,6 +198,66 @@ class LuaAdapterTests(unittest.TestCase):
             assert(fixture_precache_calls==1)
         ''')
 
+    def test_spawn_group_precache_exports_room_hook_and_preserves_arguments(self):
+        self.globals[b'fixture_entry'] = (ROOT / 'lua' / 'entry.lua').read_bytes()
+        self.lua.execute(b'''
+            package.preload['ahb_bridge']=function()
+                return {install=function()end,attach=function()end,probe=function()end}
+            end
+            package.preload['ahb_ui_transport']=function()
+                return {install=function()end,attach=function()end}
+            end
+            package.preload['ahb_workshop']=function()
+                _G.SpawnGroupPrecache=function(group,context,...)
+                    assert(group==fixture_group and context==fixture_context)
+                    assert(select('#',...)==2 and select(1,...)==nil
+                           and select(2,...)=='extra')
+                    fixture_room_precache_calls=fixture_room_precache_calls+1
+                    fixture_room:Precache(context)
+                    return 'room precached',nil,9
+                end
+                return 'original workshop result'
+            end
+            fixture_group=321
+            fixture_context={sentinel=456}
+            fixture_room_precache_calls=0
+            fixture_precached_units={}
+            PrecacheUnitByNameSync=function(unit,context,owner)
+                assert(context==fixture_context and owner==-1)
+                fixture_precached_units[#fixture_precached_units+1]=unit
+            end
+            fixture_room={Precache=function(self,context)
+                PrecacheUnitByNameSync('fixture_melee',context,-1)
+                PrecacheUnitByNameSync('fixture_ranged',context,-1)
+                PrecacheUnitByNameSync('fixture_leader',context,-1)
+            end}
+            local scope=setmetatable({}, {__index=_G})
+            local entry=assert(loadstring(fixture_entry))
+            setfenv(entry,scope)
+            assert(entry()=='original workshop result')
+            assert(type(rawget(scope,'SpawnGroupPrecache'))=='function')
+            local first,second,third=scope.SpawnGroupPrecache(
+                fixture_group,fixture_context,nil,'extra')
+            assert(first=='room precached' and second==nil and third==9)
+            assert(fixture_room_precache_calls==1)
+            assert(table.concat(fixture_precached_units,',')==
+                   'fixture_melee,fixture_ranged,fixture_leader')
+        ''')
+
+    def test_missing_optional_precache_hooks_are_harmless(self):
+        self.lua.execute(b'''
+            package.preload['ahb_bridge']=function()
+                return {install=function()end,attach=function()end,probe=function()end}
+            end
+            package.preload['ahb_ui_transport']=function()
+                return {install=function()end,attach=function()end}
+            end
+            package.preload['ahb_workshop']=function() return true end
+        ''')
+        self.lua.execute((ROOT / 'lua' / 'entry.lua').read_bytes())
+        self.assertIsNone(self.lua.eval(b'function() return Precache({}) end')())
+        self.assertIsNone(self.lua.eval(b'function() return SpawnGroupPrecache(1,{}) end')())
+
 
 if __name__ == '__main__':
     unittest.main()

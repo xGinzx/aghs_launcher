@@ -123,11 +123,13 @@ Workshop entry point stored as `ahb_workshop.lua`. Native HTTP requests are used
 when Dota supplies them. A replacement request object is supplied when the native
 factory returns no object.
 
-The entry script forwards the Workshop's `Precache` and `Activate` lifecycle
-hooks. This preserves the map's original model, particle, sound, and unit
-preloading. The console reports `[AGHS_ASSETS] workshop Precache started` and
-`completed` when that resource list is executed. The launcher does not replace
-missing models with unrelated assets.
+The entry script forwards the Workshop's `Precache`, `SpawnGroupPrecache`, and
+`Activate` lifecycle hooks. This preserves initial asset preloading and each
+dynamically loaded encounter room's model, particle, sound, and unit preloading.
+The console reports `[AGHS_ASSETS] workshop Precache started` and `completed`
+for the initial resource list, and `workshop SpawnGroupPrecache dispatched`
+when a room's precache hook is forwarded. The launcher does not replace missing
+models with unrelated assets.
 
 The adapter prints framed requests into `game/dota/console.log`. Python reads
 those frames and performs the requests. Responses are written to a session
